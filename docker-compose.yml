@@ -4,14 +4,17 @@ services:
     ports:
       - "7000:7000"
     volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
+      # Unraid: absolute appdata paths (NOT ./data) — relative binds in a
+      # Portainer git stack resolve to the host root /data/... which is rootfs
+      # (RAM/tmpfs) on Unraid: lost on reboot + fills RAM. appdata is persistent.
+      - /mnt/user/appdata/odysseus/data:/app/data
+      - /mnt/user/appdata/odysseus/logs:/app/logs
       # Cookbook remote-server SSH identity. Odysseus can generate a key here;
       # add the shown public key to each remote server's authorized_keys.
-      - ./data/ssh:/app/.ssh
+      - /mnt/user/appdata/odysseus/data/ssh:/app/.ssh
       # Cookbook local model cache. Inside Docker, "Local" means the Odysseus
-      # container, so persist its HuggingFace cache under ./data/huggingface.
-      - ./data/huggingface:/app/.cache/huggingface
+      # container, so persist its HuggingFace cache under data/huggingface.
+      - /mnt/user/appdata/odysseus/data/huggingface:/app/.cache/huggingface
     env_file:
       - .env
     environment:
