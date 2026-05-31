@@ -1,0 +1,98 @@
+# =============================================================================
+#  docker-compose.unraid.yml  —  REFERENCE / BACKUP (Unraid)
+# =============================================================================
+#  Fichier de secours, propre à ce fork. Upstream (pewdiepie-archdaemon) ne le
+#  contient PAS, donc une "Sync fork" ne le modifiera ni ne le supprimera jamais.
+#
+#  À quoi ça sert :
+#   - Si une sync écrase tes modifs dans docker-compose.yml, recopie les blocs
+#     "volumes:" ci-dessous (odysseus + searxng) pour remettre les bons chemins.
+#   - OU déploie directement DEPUIS ce fichier : dans Portainer, mets
+#     "Compose path" = docker-compose.unraid.yml. Ainsi docker-compose.yml reste
+#     intact côté upstream et tes syncs ne créent plus jamais de conflit.
+#     (Inconvénient : si upstream ajoute un service/une option au compose, tu
+#      devras la reporter ici à la main.)
+#
+#  Différences vs upstream (spécifique Unraid) :
+#   - Volumes odysseus + searxng en chemins ABSOLUS /mnt/user/appdata/odysseus/...
+#     car les binds relatifs "./..." d'un stack Git Portainer se résolvent sur
+#     la racine hôte /data/compose/<id>/ = rootfs (RAM/tmpfs) sur Unraid :
+#     non persistant (perdu au reboot) + sature la RAM.
+#   - searxng monte le DOSSIER (./config/searxng -> dossier appdata), pas le
+#     fichier seul (bind d'un fichier unique cassé sur le FUSE /mnt/user).
+#
+#  Prérequis pour déployer :
+#   - un fichier .env à la racine (PUID=99 / PGID=100 / TZ=Europe/Paris)
+#   - /mnt/user/appdata/odysseus/searxng/settings.yml pré-rempli (format json)
+# =============================================================================
+
+services:
+  odysseus:
+    build: .
+    ports:
+      - "7000:7000"
+    volumes:
+      # Unraid: chemins ABSOLUS appdata (PAS ./data) — persistant, hors RAM.
+      - /mnt/user/appdata/odysseus/data:/app/data
+      - /mnt/user/appdata/odysseus/logs:/app/logs
+      # Cookbook remote-server SSH identity.
+      - /mnt/user/appdata/odysseus/data/ssh:/app/.ssh
+      # Cookbook local model cache (HuggingFace).
+      - /mnt/user/appdata/odysseus/data/huggingface:/app/.cache/huggingface
+    env_file:
+      - .env
+    environment:
+      - SEARXNG_INSTANCE=http://searxng:8080
+      - CHROMADB_HOST=chromadb
+      - CHROMADB_PORT=8000
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+    depends_on:
+      searxng:
+        condition: service_healthy
+      chromadb:
+        condition: service_started
+    restart: unless-stopped
+
+  chromadb:
+    image: chromadb/chroma:latest
+    ports:
+      - "8100:8000"
+    volumes:
+      - chromadb-data:/chroma/chroma
+    environment:
+      - ANONYMIZED_TELEMETRY=FALSE
+    restart: unless-stopped
+
+  searxng:
+    image: searxng/searxng:latest
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      # Unraid: chemin ABSOLU appdata + montage du DOSSIER (pas du fichier seul).
+      - /mnt/user/appdata/odysseus/searxng:/etc/searxng
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8080/
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/', timeout=5).read(1)\""]
+      interval: 5s
+      timeout: 6s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  ntfy:
+    image: binwiederhier/ntfy
+    command: serve
+    ports:
+      - "8091:80"
+    volumes:
+      - ntfy-cache:/var/cache/ntfy
+    environment:
+      - NTFY_BASE_URL=http://localhost:8091
+    restart: unless-stopped
+
+volumes:
+  searxng-data:
+  chromadb-data:
+  ntfy-cache:
